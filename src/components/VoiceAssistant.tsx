@@ -241,16 +241,21 @@ const VoiceAssistant = () => {
           stream: true,
         };
       } else if (settings.provider === "gemini") {
-        url = `${settings.baseUrl}/chat/completions`;
+        const geminiMessages = apiMessages.filter((m) => m.role !== "system").map((m) => ({
+          role: m.role === "user" ? "user" : "model",
+          parts: [{ text: m.content }],
+        }));
+
+        url = `https://generativelanguage.googleapis.com/v1beta/models/${settings.model}:generateContent?key=${settings.apiKey}`;
         headers = {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${settings.apiKey}`,
         };
         body = {
-          model: settings.model,
-          messages: apiMessages,
-          stream: true,
-          tools: [{ google_search: {} }],
+          contents: geminiMessages,
+          systemInstruction: {
+            parts: [{ text: systemPrompt }],
+          },
+          tools: [{ googleSearch: {} }],
         };
       } else {
         url = `${settings.baseUrl}/chat/completions`;
@@ -285,50 +290,64 @@ const VoiceAssistant = () => {
 
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      if (settings.provider === "gemini") {
+        const data = await resp.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        assistantContent = text;
+        setMessages((prev) => {
+          const newMsgs = [...prev];
+          newMsgs[newMsgs.length - 1] = {
+            role: "assistant",
+            content: assistantContent,
+          };
+          return newMsgs;
+        });
+      } else {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
+          buffer += decoder.decode(value, { stream: true });
 
-        let newlineIndex: number;
-        while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-          let line = buffer.slice(0, newlineIndex);
-          buffer = buffer.slice(newlineIndex + 1);
+          let newlineIndex: number;
+          while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+            let line = buffer.slice(0, newlineIndex);
+            buffer = buffer.slice(newlineIndex + 1);
 
-          if (line.endsWith("\r")) line = line.slice(0, -1);
-          if (line.startsWith(":") || line.trim() === "") continue;
-          if (!line.startsWith("data: ")) continue;
+            if (line.endsWith("\r")) line = line.slice(0, -1);
+            if (line.startsWith(":") || line.trim() === "") continue;
+            if (!line.startsWith("data: ")) continue;
 
-          const jsonStr = line.slice(6).trim();
-          if (jsonStr === "[DONE]") break;
+            const jsonStr = line.slice(6).trim();
+            if (jsonStr === "[DONE]") break;
 
-          try {
-            const parsed = JSON.parse(jsonStr);
-            let content = "";
+            try {
+              const parsed = JSON.parse(jsonStr);
+              let content = "";
 
-            if (settings.provider === "anthropic") {
-              if (parsed.type === "content_block_delta") {
-                content = parsed.delta?.text || "";
+              if (settings.provider === "anthropic") {
+                if (parsed.type === "content_block_delta") {
+                  content = parsed.delta?.text || "";
+                }
+              } else {
+                content = parsed.choices?.[0]?.delta?.content || "";
               }
-            } else {
-              content = parsed.choices?.[0]?.delta?.content || "";
-            }
 
-            if (content) {
-              assistantContent += content;
-              setMessages((prev) => {
-                const newMsgs = [...prev];
-                newMsgs[newMsgs.length - 1] = {
-                  role: "assistant",
-                  content: assistantContent,
-                };
-                return newMsgs;
-              });
+              if (content) {
+                assistantContent += content;
+                setMessages((prev) => {
+                  const newMsgs = [...prev];
+                  newMsgs[newMsgs.length - 1] = {
+                    role: "assistant",
+                    content: assistantContent,
+                  };
+                  return newMsgs;
+                });
+              }
+            } catch {
+              buffer = line + "\n" + buffer;
+              break;
             }
-          } catch {
-            buffer = line + "\n" + buffer;
-            break;
           }
         }
       }
