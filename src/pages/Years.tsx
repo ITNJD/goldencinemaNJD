@@ -9,13 +9,16 @@ const Years = () => {
   const { data: years = [] } = useYears();
 
   const decades = [
+    { label: "العشرينات", start: 1920, end: 1929 },
+    { label: "الثلاثينيات", start: 1930, end: 1939 },
+    { label: "الأربعينات", start: 1940, end: 1949 },
     { label: "الخمسينيات", start: 1950, end: 1959 },
     { label: "الستينيات", start: 1960, end: 1969 },
     { label: "السبعينيات", start: 1970, end: 1979 },
     { label: "الثمانينيات", start: 1980, end: 1989 },
     { label: "التسعينيات", start: 1990, end: 1999 },
     { label: "الألفينيات", start: 2000, end: 2009 },
-    { label: "العشرينيات", start: 2010, end: 2029 },
+    { label: "العشرينات", start: 2020, end: 2029 },
   ];
 
   const getMoviesByYear = (year: number) =>

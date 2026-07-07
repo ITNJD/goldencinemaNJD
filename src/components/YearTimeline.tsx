@@ -5,14 +5,17 @@ const YearTimeline = () => {
   const { data: years = [], isLoading } = useYears();
 
   const getDecades = () => {
-    const decadeMap: { [key: string]: { label: string; years: number[] } } = {
-      "1950": { label: "الخمسينيات", years: [] },
-      "1960": { label: "الستينيات", years: [] },
-      "1970": { label: "السبعينيات", years: [] },
-      "1980": { label: "الثمانينيات", years: [] },
-      "1990": { label: "التسعينيات", years: [] },
-      "2000": { label: "الألفينيات", years: [] },
-      "2010": { label: "العشرينيات", years: [] },
+    const decadeMap: { [key: string]: { label: string; years: number[]; endYear: number } } = {
+      "1920": { label: "العشرينات", years: [], endYear: 1929 },
+      "1930": { label: "الثلاثينيات", years: [], endYear: 1939 },
+      "1940": { label: "الأربعينات", years: [], endYear: 1949 },
+      "1950": { label: "الخمسينيات", years: [], endYear: 1959 },
+      "1960": { label: "الستينيات", years: [], endYear: 1969 },
+      "1970": { label: "السبعينيات", years: [], endYear: 1979 },
+      "1980": { label: "الثمانينيات", years: [], endYear: 1989 },
+      "1990": { label: "التسعينيات", years: [], endYear: 1999 },
+      "2000": { label: "الألفينيات", years: [], endYear: 2009 },
+      "2020": { label: "العشرينات", years: [], endYear: 2029 },
     };
 
     years.forEach((year) => {
@@ -20,8 +23,8 @@ const YearTimeline = () => {
       const key = decade.toString();
       if (decadeMap[key]) {
         decadeMap[key].years.push(year);
-      } else if (decade >= 2010) {
-        decadeMap["2010"].years.push(year);
+      } else if (decade >= 2020) {
+        decadeMap["2020"].years.push(year);
       }
     });
 
@@ -87,7 +90,7 @@ const YearTimeline = () => {
                     {decade.label}
                   </h3>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {decade.years[0]} - {decade.years[decade.years.length - 1] || decade.years[0]}
+                    {decade.startYear} - {decade.endYear}
                   </p>
                 </Link>
               </div>
