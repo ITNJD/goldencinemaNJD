@@ -11,54 +11,66 @@ serve(async (req) => {
   }
 
   try {
-    const { messages } = await req.json();
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    const { messages, apiKey, provider, model, baseUrl } = await req.json();
+
+    if (!apiKey) {
+      throw new Error("API Key is required");
     }
 
-    const systemPrompt = `أنت مساعد ذكي متخصص في السينما العربية. أنت تعرف كل شيء عن الأفلام العربية والفنانين والمخرجين والمهرجانات السينمائية العربية.
-
-مهامك:
-- الإجابة على أسئلة المستخدمين حول الأفلام العربية
-- تقديم معلومات عن الفنانين والمخرجين
-- اقتراح أفلام للمشاهدة بناءً على تفضيلات المستخدم
-- مشاركة معلومات تاريخية عن السينما العربية
-
+    const systemPrompt = `أنت مساعد ذكي ومفيد. تقدر تساعد المستخدم في أي سؤال أو موضوع.
 أجب بطريقة ودية ومختصرة باللغة العربية.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
+    let url = "";
+    let headers: Record<string, string> = {};
+    let body: Record<string, unknown> = {};
+
+    if (provider === "anthropic") {
+      url = `${baseUrl || "https://api.anthropic.com/v1"}/messages`;
+      headers = {
         "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      };
+      const systemMsg = { role: "system", content: systemPrompt };
+      body = {
+        model: model || "claude-sonnet-4-20250514",
+        max_tokens: 2048,
+        system: systemPrompt,
+        messages: messages,
+        stream: true,
+      };
+    } else {
+      url = `${baseUrl || "https://api.openai.com/v1"}/chat/completions`;
+      headers = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      };
+      body = {
+        model: model || "gpt-4o",
         messages: [
           { role: "system", content: systemPrompt },
           ...messages,
         ],
         stream: true,
-      }),
+      };
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
+      const err = await response.text();
+      console.error("AI API error:", response.status, err);
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "تم تجاوز حد الطلبات، يرجى المحاولة لاحقاً" }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "يرجى إضافة رصيد لحسابك" }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
       return new Response(JSON.stringify({ error: "خطأ في الخدمة" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

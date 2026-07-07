@@ -192,37 +192,15 @@ const VoiceAssistant = () => {
   const buildMessages = (userMessage: string, image?: string) => {
     const systemMsg = {
       role: "system" as const,
-      content: `أنت مساعد ذكي متخصص في السينما العربية. أنت تعرف كل شيء عن الأفلام العربية والفنانين والمخرجين والمهرجانات السينمائية العربية.
-مهامك:
-- الإجابة على أسئلة المستخدمين حول الأفلام العربية
-- تقديم معلومات عن الفنانين والمخرجين
-- اقتراح أفلام للمشاهدة بناءً على تفضيلات المستخدم
-- مشاركة معلومات تاريخية عن السينما العربية
-إذا أرسل المستخدم صورة، قم بتحليلها ووصف محتواها.`,
+      content: `أنت مساعد ذكي ومفيد. تقدر تساعد المستخدم في أي سؤال أو موضوع.
+- أجب بطريقة ودية ومختصرة باللغة العربية.
+- إذا أرسل المستخدم صورة، قم بتحليلها ووصف محتواها.`,
     };
 
     const userMsg: Message = { role: "user", content: userMessage };
     if (image) userMsg.image = image;
 
     return [systemMsg, ...messages, userMsg];
-  };
-
-  const buildOpenAIFormat = (msgs: ReturnType<typeof buildMessages>) => {
-    return msgs.map((m) => {
-      if (m.role === "system") {
-        return { role: "system", content: m.content };
-      }
-      if (m.image && m.role === "user") {
-        return {
-          role: "user",
-          content: [
-            { type: "text", text: m.content },
-            { type: "image_url", image_url: { url: m.image } },
-          ],
-        };
-      }
-      return { role: m.role, content: m.content };
-    });
   };
 
   const streamChat = async (userMessage: string) => {
@@ -238,67 +216,26 @@ const VoiceAssistant = () => {
     let assistantContent = "";
 
     try {
-      let resp: Response;
+      const allMessages = buildMessages(userMessage, uploadedImage);
+      const msgsToSend = allMessages.map((m) => ({
+        role: m.role === "system" ? "user" : m.role,
+        content: m.content,
+      }));
 
-      if (settings.apiKey) {
-        const allMessages = buildMessages(userMessage, uploadedImage);
-        const openaiFormat = buildOpenAIFormat(allMessages);
-
-        let url = "";
-        let headers: Record<string, string> = {};
-        let body: Record<string, unknown> = {};
-
-        if (settings.provider === "anthropic") {
-          url = `${settings.baseUrl}/messages`;
-          headers = {
-            "Content-Type": "application/json",
-            "x-api-key": settings.apiKey,
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
-          };
-          const systemMsg = openaiFormat.find((m) => m.role === "system");
-          const otherMsgs = openaiFormat.filter((m) => m.role !== "system");
-          body = {
-            model: settings.model,
-            max_tokens: 2048,
-            system: systemMsg?.content || "",
-            messages: otherMsgs,
-            stream: true,
-          };
-        } else {
-          url = `${settings.baseUrl}/chat/completions`;
-          headers = {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${settings.apiKey}`,
-          };
-          body = {
-            model: settings.model,
-            messages: openaiFormat,
-            stream: true,
-          };
-        }
-
-        resp = await fetch(url, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(body),
-        });
-      } else {
-        const allMessages = buildMessages(userMessage, uploadedImage);
-        const msgsToSend = allMessages.map((m) => ({
-          role: m.role === "system" ? "user" : m.role,
-          content: m.content,
-        }));
-
-        resp = await fetch(CHAT_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({ messages: msgsToSend }),
-        });
-      }
+      const resp = await fetch(CHAT_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+        },
+        body: JSON.stringify({
+          messages: msgsToSend,
+          apiKey: settings.apiKey || undefined,
+          provider: settings.apiKey ? settings.provider : undefined,
+          model: settings.apiKey ? settings.model : undefined,
+          baseUrl: settings.apiKey ? settings.baseUrl : undefined,
+        }),
+      });
 
       if (!resp.ok) {
         const err = await resp.text();
@@ -313,8 +250,6 @@ const VoiceAssistant = () => {
       if (!reader) throw new Error("No reader");
 
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
-
-      const isAnthropic = settings.apiKey && settings.provider === "anthropic";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -336,15 +271,7 @@ const VoiceAssistant = () => {
 
           try {
             const parsed = JSON.parse(jsonStr);
-
-            let content = "";
-            if (isAnthropic) {
-              if (parsed.type === "content_block_delta") {
-                content = parsed.delta?.text || "";
-              }
-            } else {
-              content = parsed.choices?.[0]?.delta?.content || "";
-            }
+            const content = parsed.choices?.[0]?.delta?.content || "";
 
             if (content) {
               assistantContent += content;
