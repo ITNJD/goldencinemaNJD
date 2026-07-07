@@ -8,15 +8,19 @@ const corsHeaders = {
 
 async function searchGoogle(query: string, apiKey: string, cx: string): Promise<string> {
   try {
-    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}&num=5&lr=lang_ar`;
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}&num=10&lr=lang_ar`;
     const resp = await fetch(url);
-    if (!resp.ok) return "";
+    if (!resp.ok) {
+      console.error("Search API error:", resp.status, await resp.text());
+      return "";
+    }
     const data = await resp.json();
     if (!data.items || data.items.length === 0) return "";
     return data.items.map((item: { title: string; snippet: string; link: string }) =>
-      `- ${item.title}: ${item.snippet} (${item.link})`
+      `- ${item.title}: ${item.snippet} [${item.link}]`
     ).join("\n");
-  } catch {
+  } catch (e) {
+    console.error("Search error:", e);
     return "";
   }
 }
@@ -50,12 +54,12 @@ serve(async (req) => {
 
     let moviesContext = "";
     if (movies && movies.length > 0) {
-      moviesContext = `\n\nأفلام موجودة في موقع "السينما الذهبية":\n${movies.map((m, i) => `${i + 1}. "${m.title}" (${m.year}) - إخراج: ${m.director || "غير معروف"} - تصنيف: ${(m.genre || []).join(", ")} - تقييم: ${m.rating || "غير مقيم"}`).join("\n")}`;
+      moviesContext = `\nأفلام موجودة في موقع "السينما الذهبية":\n${movies.map((m, i) => `${i + 1}. "${m.title}" (${m.year}) - إخراج: ${m.director || "غير معروف"} - تصنيف: ${(m.genre || []).join(", ")} - تقييم: ${m.rating || "غير مقيم"}`).join("\n")}`;
     }
 
     let artistsContext = "";
     if (artists && artists.length > 0) {
-      artistsContext = `\n\nفنانين موجودين في موقع "السينما الذهبية":\n${artists.map((a, i) => `${i + 1}. ${a.name} (${a.birth_year || "?"} - ${a.death_year || "حتى الآن"}) - ${a.role?.join(", ") || ""}`).join("\n")}`;
+      artistsContext = `\nفنانين موجودين في موقع "السينما الذهبية":\n${artists.map((a, i) => `${i + 1}. ${a.name} (${a.birth_year || "?"} - ${a.death_year || "حتى الآن"}) - ${a.role?.join(", ") || ""}`).join("\n")}`;
     }
 
     const lastUserMsg = messages?.filter((m: { role: string }) => m.role === "user").pop();
@@ -64,25 +68,31 @@ serve(async (req) => {
     let searchContext = "";
     if (searchApiKey && searchEngineId && userQuestion) {
       searchContext = await searchGoogle(userQuestion, searchApiKey, searchEngineId);
+      console.log("Search results:", searchContext ? "Found" : "Empty");
+    } else {
+      console.log("Search skipped:", { searchApiKey: !!searchApiKey, searchEngineId: !!searchEngineId });
     }
 
     const systemPrompt = `أنت مساعد ذكي ومفيد متخصص في السينما العربية.
 
-معلومات مهمة:
+معلومات مهمة جداً:
 - السنة الحالية هي 2026
-- أنت تعرف عن الأفلام العربية من مواقع مختلفة ومن معرفتك العامة
+- أنت مساعد لموقع "السينما الذهبية"
 
 ${moviesContext}
 
 ${artistsContext}
 
-${searchContext ? `\nنتائج بحث من الإنترنت:\n${searchContext}` : ""}
+${searchContext ? `\nنتائج بحث من الإنترنت (استخدمها للإجابة):\n${searchContext}` : "\nملاحظة: لا توجد نتائج بحث متاحة حالياً."}
 
-قواعد:
-- إذا سأل المستخدم عن فيلم موجود في موقع "السينما الذهبية"، وضح أنه من الموقع
-- إذا سأل عن فيلم غير موجود في الموقع، وضح أنه من معرفتك العامة أو من الإنترنت
-- إذا سأل عن أحدث الأفلام، استخدم معرفتك العامة عن أفلام 2025 و 2026
-- أجب باللغة العربية بطريقة ودية ومختصرة`;
+قواعد صارمة:
+1. إذا كان هناك نتائج بحث، استخدمها فقط للإجابة واحذر المستخدم من المصدر
+2. لا تخترع أسماء أفلام أو مخرجين أو ممثلين - فقط استخدم ما هو موجود في النتائج أو في قواعد البيانات أعلاه
+3. إذا لم تجد معلومة، قل "لا تتوفر لدي معلومات كافية"
+4. إذا سأل المستخدم عن فيلم من الموقع، وضح أنه من "السينما الذهبية"
+5. إذا سأل عن أحدث الأفلام، استخدم نتائج البحث فقط
+6. أجب باللغة العربية بطريقة ودية ومختصرة
+7. إذا كان هناك روابط في نتائج البحث، شاركها مع المستخدم`;
 
     let url = "";
     let headers: Record<string, string> = {};
