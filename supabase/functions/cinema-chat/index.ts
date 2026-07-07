@@ -5,20 +5,44 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+async function searchGoogle(query: string, apiKey: string, cx: string): Promise<string> {
+  try {
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}&num=5&lr=lang_ar`;
+    const resp = await fetch(url);
+    if (!resp.ok) return "";
+    const data = await resp.json();
+    if (!data.items || data.items.length === 0) return "";
+    return data.items.map((item: { title: string; snippet: string; link: string }) =>
+      `- ${item.title}: ${item.snippet} (${item.link})`
+    ).join("\n");
+  } catch {
+    return "";
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { messages, apiKey, provider, model, baseUrl } = await req.json();
+    const { messages, apiKey, provider, model, baseUrl, searchApiKey, searchEngineId } = await req.json();
 
     if (!apiKey) {
       throw new Error("API Key is required");
     }
 
-    const systemPrompt = `أنت مساعد ذكي ومفيد. تقدر تساعد المستخدم في أي سؤال أو موضوع.
-أجب بطريقة ودية ومختصرة باللغة العربية.`;
+    const lastUserMsg = messages?.filter((m: { role: string }) => m.role === "user").pop();
+    const userQuestion = lastUserMsg?.content || "";
+
+    let searchContext = "";
+    if (searchApiKey && searchEngineId && userQuestion) {
+      searchContext = await searchGoogle(userQuestion, searchApiKey, searchEngineId);
+    }
+
+    const systemPrompt = `أنت مساعد ذكي ومفيد. عندك معرفة واسعة عن كل المواضيع.
+- أجب باللغة العربية بطريقة ودية ومختصرة
+- إذا لم تعرف الإجابة، قل ذلك بوضوح${searchContext ? `\n\nنتائج بحث من الإنترنت:\n${searchContext}\n\nاستخدم هذه النتائج للإجابة إذا كانت مناسبة.` : ""}`;
 
     let url = "";
     let headers: Record<string, string> = {};
@@ -32,12 +56,25 @@ serve(async (req) => {
         "anthropic-version": "2023-06-01",
         "anthropic-dangerous-direct-browser-access": "true",
       };
-      const systemMsg = { role: "system", content: systemPrompt };
       body = {
         model: model || "claude-sonnet-4-20250514",
         max_tokens: 2048,
         system: systemPrompt,
         messages: messages,
+        stream: true,
+      };
+    } else if (provider === "gemini") {
+      url = `${baseUrl || "https://generativelanguage.googleapis.com/v1beta/openai"}/chat/completions`;
+      headers = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      };
+      body = {
+        model: model || "gemini-2.5-flash",
+        messages: [
+          { role: "system", content: systemPrompt },
+          ...messages,
+        ],
         stream: true,
       };
     } else {
@@ -71,7 +108,7 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ error: "خطأ في الخدمة" }), {
+      return new Response(JSON.stringify({ error: `خطأ: ${response.status}` }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
