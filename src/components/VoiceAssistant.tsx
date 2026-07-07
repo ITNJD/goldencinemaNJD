@@ -255,7 +255,7 @@ const VoiceAssistant = () => {
           systemInstruction: {
             parts: [{ text: systemPrompt }],
           },
-          tools: [{ googleSearch: {} }],
+          tools: [{ google_search_retrieval: {} }],
         };
       } else {
         url = `${settings.baseUrl}/chat/completions`;
