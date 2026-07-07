@@ -187,6 +187,22 @@ const VoiceAssistant = () => {
     }
   };
 
+  const searchWeb = async (query: string): Promise<string> => {
+    try {
+      const { data, error } = await supabase.functions.invoke("web-search", {
+        body: { query },
+      });
+      if (error) throw error;
+      if (!data?.results?.length) return "";
+      return data.results
+        .map((r: { title: string; snippet: string }) => `- ${r.title}: ${r.snippet}`)
+        .join("\n");
+    } catch (e) {
+      console.error("Web search failed:", e);
+      return "";
+    }
+  };
+
   const streamChat = async (userMessage: string) => {
     if (!settings.apiKey) {
       toast({
@@ -210,10 +226,12 @@ const VoiceAssistant = () => {
     let assistantContent = "";
 
     try {
+      const searchResults = await searchWeb(userMessage);
+
       const systemPrompt = `أنت مساعد ذكي ومفيد. السنة الحالية 2026.
-- أجب باللغة العربية بطريقة ودية ومختصرة
-- استخدم بحث Google عندما يكون متاحاً للحصول على أحدث المعلومات
-- لا تخترع معلومات - إذا لم تجد معلومة من البحث، قل ذلك بوضوح`;
+أجب باللغة العربية بطريقة ودية ومختصرة.
+${searchResults ? `نتائج البحث من الإنترنت:\n${searchResults}\n\nاستخدم هذه النتائج للإجابة بدقة.` : "لا توجد نتائج بحث متاحة."}
+مهم جداً: لا تخترع معلومات أو أفلام أو أسماء غير موجودة في نتائج البحث. إذا لم تجد إجابة واضحة، قل "لا أملك معلومات كافية عن هذا الموضوع".`;
 
       let url = "";
       let headers: Record<string, string> = {};
@@ -255,7 +273,6 @@ const VoiceAssistant = () => {
           systemInstruction: {
             parts: [{ text: systemPrompt }],
           },
-          tools: [{ google_search_retrieval: {} }],
         };
       } else {
         url = `${settings.baseUrl}/chat/completions`;
