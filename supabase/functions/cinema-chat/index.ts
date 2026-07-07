@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -32,6 +33,31 @@ serve(async (req) => {
       throw new Error("API Key is required");
     }
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { data: movies } = await supabase
+      .from("movies")
+      .select("title, year, director, genre, rating, synopsis, duration")
+      .order("year", { ascending: false })
+      .limit(50);
+
+    const { data: artists } = await supabase
+      .from("artists")
+      .select("name, birth_year, death_year, role, biography")
+      .limit(30);
+
+    let moviesContext = "";
+    if (movies && movies.length > 0) {
+      moviesContext = `\n\nأفلام موجودة في موقع "السينما الذهبية":\n${movies.map((m, i) => `${i + 1}. "${m.title}" (${m.year}) - إخراج: ${m.director || "غير معروف"} - تصنيف: ${(m.genre || []).join(", ")} - تقييم: ${m.rating || "غير مقيم"}`).join("\n")}`;
+    }
+
+    let artistsContext = "";
+    if (artists && artists.length > 0) {
+      artistsContext = `\n\nفنانين موجودين في موقع "السينما الذهبية":\n${artists.map((a, i) => `${i + 1}. ${a.name} (${a.birth_year || "?"} - ${a.death_year || "حتى الآن"}) - ${a.role?.join(", ") || ""}`).join("\n")}`;
+    }
+
     const lastUserMsg = messages?.filter((m: { role: string }) => m.role === "user").pop();
     const userQuestion = lastUserMsg?.content || "";
 
@@ -40,9 +66,23 @@ serve(async (req) => {
       searchContext = await searchGoogle(userQuestion, searchApiKey, searchEngineId);
     }
 
-    const systemPrompt = `أنت مساعد ذكي ومفيد. عندك معرفة واسعة عن كل المواضيع.
-- أجب باللغة العربية بطريقة ودية ومختصرة
-- إذا لم تعرف الإجابة، قل ذلك بوضوح${searchContext ? `\n\nنتائج بحث من الإنترنت:\n${searchContext}\n\nاستخدم هذه النتائج للإجابة إذا كانت مناسبة.` : ""}`;
+    const systemPrompt = `أنت مساعد ذكي ومفيد متخصص في السينما العربية.
+
+معلومات مهمة:
+- السنة الحالية هي 2026
+- أنت تعرف عن الأفلام العربية من مواقع مختلفة ومن معرفتك العامة
+
+${moviesContext}
+
+${artistsContext}
+
+${searchContext ? `\nنتائج بحث من الإنترنت:\n${searchContext}` : ""}
+
+قواعد:
+- إذا سأل المستخدم عن فيلم موجود في موقع "السينما الذهبية"، وضح أنه من الموقع
+- إذا سأل عن فيلم غير موجود في الموقع، وضح أنه من معرفتك العامة أو من الإنترنت
+- إذا سأل عن أحدث الأفلام، استخدم معرفتك العامة عن أفلام 2025 و 2026
+- أجب باللغة العربية بطريقة ودية ومختصرة`;
 
     let url = "";
     let headers: Record<string, string> = {};
