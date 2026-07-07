@@ -280,6 +280,33 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_messages: {
+        Row: {
+          id: string
+          user_id: string
+          role: string
+          content: string
+          image_url: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          role: string
+          content?: string
+          image_url?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          role?: string
+          content?: string
+          image_url?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       news_ticker: {
         Row: {
           content: string
