@@ -187,22 +187,6 @@ const VoiceAssistant = () => {
     }
   };
 
-  const searchWeb = async (query: string): Promise<string> => {
-    try {
-      const { data, error } = await supabase.functions.invoke("web-search", {
-        body: { query },
-      });
-      if (error) throw error;
-      if (!data?.results?.length) return "";
-      return data.results
-        .map((r: { title: string; snippet: string }) => `- ${r.title}: ${r.snippet}`)
-        .join("\n");
-    } catch (e) {
-      console.error("Web search failed:", e);
-      return "";
-    }
-  };
-
   const streamChat = async (userMessage: string) => {
     if (!settings.apiKey) {
       toast({
@@ -230,8 +214,13 @@ const VoiceAssistant = () => {
 
       const systemPrompt = `أنت مساعد ذكي ومفيد. السنة الحالية 2026.
 أجب باللغة العربية بطريقة ودية ومختصرة.
-${searchResults ? `نتائج البحث من الإنترنت:\n${searchResults}\n\nاستخدم هذه النتائج للإجابة بدقة.` : "لا توجد نتائج بحث متاحة."}
-مهم جداً: لا تخترع معلومات أو أفلام أو أسماء غير موجودة في نتائج البحث. إذا لم تجد إجابة واضحة، قل "لا أملك معلومات كافية عن هذا الموضوع".`;
+
+قواعد صارمة جداً:
+- ممنوع تماماً تأليف أو اختلاق أسماء أفلام أو مخرجين أو ممثلين
+- ممنوع اختلاق معلومات غير مؤكدة
+- إذا لم تكن متأكد من معلومة، قل "لا أملك معلومات كافية عن هذا الموضوع"
+- إذا سأل عن أفلام حديثة أو أحداث حديثة، قل "لا أستطيع التحقق من المعلومات الحديثة حالياً"
+- ركّز على الإجابات العامة والمعلومات المعروفة فقط`;
 
       let url = "";
       let headers: Record<string, string> = {};
