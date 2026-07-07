@@ -82,6 +82,7 @@ const PROVIDER_LABELS: Record<Provider, string> = {
 };
 
 const SETTINGS_KEY = "chat_settings_admin";
+const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cinema-chat`;
 
 const loadSettings = (): ChatSettings => {
   try {
@@ -225,18 +226,6 @@ const VoiceAssistant = () => {
   };
 
   const streamChat = async (userMessage: string) => {
-    if (!settings.apiKey) {
-      toast({
-        title: "محتاج API Key",
-        description: isAdmin
-          ? "افتح الإعدادات وحط API Key بتاعك"
-          : "محتاج حد Admin يحط API Key",
-        variant: "destructive",
-      });
-      if (isAdmin) setShowSettings(true);
-      return;
-    }
-
     const userMsg: Message = { role: "user", content: userMessage };
     if (uploadedImage) userMsg.image = uploadedImage;
 
@@ -249,48 +238,67 @@ const VoiceAssistant = () => {
     let assistantContent = "";
 
     try {
-      const allMessages = buildMessages(userMessage, uploadedImage);
-      const openaiFormat = buildOpenAIFormat(allMessages);
+      let resp: Response;
 
-      let url = "";
-      let headers: Record<string, string> = {};
-      let body: Record<string, unknown> = {};
+      if (settings.apiKey) {
+        const allMessages = buildMessages(userMessage, uploadedImage);
+        const openaiFormat = buildOpenAIFormat(allMessages);
 
-      if (settings.provider === "anthropic") {
-        url = `${settings.baseUrl}/messages`;
-        headers = {
-          "Content-Type": "application/json",
-          "x-api-key": settings.apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        };
-        const systemMsg = openaiFormat.find((m) => m.role === "system");
-        const otherMsgs = openaiFormat.filter((m) => m.role !== "system");
-        body = {
-          model: settings.model,
-          max_tokens: 2048,
-          system: systemMsg?.content || "",
-          messages: otherMsgs,
-          stream: true,
-        };
+        let url = "";
+        let headers: Record<string, string> = {};
+        let body: Record<string, unknown> = {};
+
+        if (settings.provider === "anthropic") {
+          url = `${settings.baseUrl}/messages`;
+          headers = {
+            "Content-Type": "application/json",
+            "x-api-key": settings.apiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          };
+          const systemMsg = openaiFormat.find((m) => m.role === "system");
+          const otherMsgs = openaiFormat.filter((m) => m.role !== "system");
+          body = {
+            model: settings.model,
+            max_tokens: 2048,
+            system: systemMsg?.content || "",
+            messages: otherMsgs,
+            stream: true,
+          };
+        } else {
+          url = `${settings.baseUrl}/chat/completions`;
+          headers = {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${settings.apiKey}`,
+          };
+          body = {
+            model: settings.model,
+            messages: openaiFormat,
+            stream: true,
+          };
+        }
+
+        resp = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        });
       } else {
-        url = `${settings.baseUrl}/chat/completions`;
-        headers = {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${settings.apiKey}`,
-        };
-        body = {
-          model: settings.model,
-          messages: openaiFormat,
-          stream: true,
-        };
-      }
+        const allMessages = buildMessages(userMessage, uploadedImage);
+        const msgsToSend = allMessages.map((m) => ({
+          role: m.role === "system" ? "user" : m.role,
+          content: m.content,
+        }));
 
-      const resp = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
+        resp = await fetch(CHAT_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+          },
+          body: JSON.stringify({ messages: msgsToSend }),
+        });
+      }
 
       if (!resp.ok) {
         const err = await resp.text();
@@ -305,6 +313,8 @@ const VoiceAssistant = () => {
       if (!reader) throw new Error("No reader");
 
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+      const isAnthropic = settings.apiKey && settings.provider === "anthropic";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -328,7 +338,7 @@ const VoiceAssistant = () => {
             const parsed = JSON.parse(jsonStr);
 
             let content = "";
-            if (settings.provider === "anthropic") {
+            if (isAnthropic) {
               if (parsed.type === "content_block_delta") {
                 content = parsed.delta?.text || "";
               }
@@ -518,7 +528,7 @@ const VoiceAssistant = () => {
               <div className="p-4 space-y-4 overflow-y-auto flex-1">
                 <div className="bg-gold/10 border border-gold/20 rounded-lg p-3 text-xs text-muted-foreground">
                   <Lock className="w-3 h-3 inline mr-1 text-gold" />
-                  الإعدادات دي للـ Admin بس. غير كده الشات مش هيشتغل.
+                  الشات شغال بـ Gemini المدمج. الإعدادات دي اختيارية لو عايز تستخدم API مخصص.
                 </div>
 
                 <div>
@@ -587,7 +597,7 @@ const VoiceAssistant = () => {
 
                 {!tempSettings.apiKey && (
                   <p className="text-xs text-muted-foreground bg-secondary rounded-lg p-3">
-                    محتاج تحط API Key عشان الشات يشتغل. تقدر تاخده من:
+                    الشات شغال بـ Gemini المدمج. لو عايز تستخدم API مخصص، حط الـ Key بتاعك:
                     <br />
                     - OpenAI: platform.openai.com
                     <br />
@@ -622,7 +632,7 @@ const VoiceAssistant = () => {
                         : "زائر"}
                       {settings.apiKey
                         ? ` - ${PROVIDER_LABELS[settings.provider]}`
-                        : " - بدون API Key"}
+                        : " - Gemini"}
                     </p>
                   </div>
                 </div>
@@ -673,13 +683,8 @@ const VoiceAssistant = () => {
                         }}
                         className="mt-3 text-xs text-gold underline"
                       >
-                        اضغط هنا لضبط API Key
+                        اضغط هنا لضبط API Key مخصص
                       </button>
-                    )}
-                    {!isAdmin && !settings.apiKey && (
-                      <p className="mt-3 text-xs text-red-400">
-                        محتاج Admin يضبط API Key
-                      </p>
                     )}
                   </div>
                 )}
