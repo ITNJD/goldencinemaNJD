@@ -3,10 +3,13 @@ import Footer from "@/components/Footer";
 import MovieCard from "@/components/MovieCard";
 import { useMovies, useYears } from "@/hooks/useMovies";
 import { Calendar } from "lucide-react";
+import { useSearchParams } from "react-router-dom";
 
 const Years = () => {
   const { data: movies = [], isLoading } = useMovies();
   const { data: years = [] } = useYears();
+  const [searchParams] = useSearchParams();
+  const decadeParam = searchParams.get("decade");
 
   const decades = [
     { label: "العشرينات", start: 1920, end: 1929 },
@@ -20,6 +23,10 @@ const Years = () => {
     { label: "الألفينيات", start: 2000, end: 2009 },
     { label: "العشرينات", start: 2020, end: 2029 },
   ];
+
+  const filteredDecades = decadeParam
+    ? decades.filter((d) => d.start === parseInt(decadeParam))
+    : decades;
 
   const getMoviesByYear = (year: number) =>
     movies.filter((m) => m.year === year);
@@ -67,7 +74,7 @@ const Years = () => {
           </div>
 
           {/* Decades */}
-          {decades.map((decade) => {
+          {filteredDecades.map((decade) => {
             const decadeYears = getDecadeYears(decade.start, decade.end);
             if (decadeYears.length === 0) return null;
 
