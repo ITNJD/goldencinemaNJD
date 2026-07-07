@@ -57,8 +57,6 @@ type ChatSettings = {
   provider: Provider;
   model: string;
   baseUrl: string;
-  searchApiKey: string;
-  searchEngineId: string;
 };
 
 const DEFAULT_SETTINGS: Record<Provider, { baseUrl: string; model: string }> = {
@@ -94,29 +92,12 @@ const loadSettings = (): ChatSettings => {
     provider: "openai",
     model: DEFAULT_SETTINGS.openai.model,
     baseUrl: DEFAULT_SETTINGS.openai.baseUrl,
-    searchApiKey: "",
-    searchEngineId: "",
   };
 };
 
 const saveSettingsToStorage = (settings: ChatSettings) => {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 };
-
-async function searchGoogle(query: string, apiKey: string, cx: string): Promise<string> {
-  try {
-    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}&num=5&lr=lang_ar`;
-    const resp = await fetch(url);
-    if (!resp.ok) return "";
-    const data = await resp.json();
-    if (!data.items || data.items.length === 0) return "";
-    return data.items.map((item: { title: string; snippet: string; link: string }) =>
-      `- ${item.title}: ${item.snippet} [${item.link}]`
-    ).join("\n");
-  } catch {
-    return "";
-  }
-}
 
 const VoiceAssistant = () => {
   const { user } = useAuth();
@@ -229,15 +210,10 @@ const VoiceAssistant = () => {
     let assistantContent = "";
 
     try {
-      let searchContext = "";
-      if (settings.searchApiKey && settings.searchEngineId) {
-        searchContext = await searchGoogle(userMessage, settings.searchApiKey, settings.searchEngineId);
-      }
-
       const systemPrompt = `أنت مساعد ذكي ومفيد. السنة الحالية 2026.
 - أجب باللغة العربية بطريقة ودية ومختصرة
-- لا تخترع معلومات - إذا لم تعرف الإجابة، قل ذلك
-${searchContext ? `\nنتائج بحث من الإنترنت:\n${searchContext}\nاستخدمها للإجابة إذا كانت مناسبة.` : ""}`;
+- استخدم بحث Google عندما يكون متاحاً للحصول على أحدث المعلومات
+- لا تخترع معلومات - إذا لم تجد معلومة من البحث، قل ذلك بوضوح`;
 
       let url = "";
       let headers: Record<string, string> = {};
@@ -246,7 +222,7 @@ ${searchContext ? `\nنتائج بحث من الإنترنت:\n${searchContext}\
       const apiMessages = [
         { role: "system", content: systemPrompt },
         ...messages.map((m) => ({ role: m.role, content: m.content })),
-        { role: "user", content: uploadedImage ? `${userMessage}\n[صورة مرفقة]` : userMessage },
+        { role: "user", content: userMessage },
       ];
 
       if (settings.provider === "anthropic") {
@@ -263,6 +239,18 @@ ${searchContext ? `\nنتائج بحث من الإنترنت:\n${searchContext}\
           system: systemPrompt,
           messages: apiMessages.filter((m) => m.role !== "system"),
           stream: true,
+        };
+      } else if (settings.provider === "gemini") {
+        url = `${settings.baseUrl}/chat/completions`;
+        headers = {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${settings.apiKey}`,
+        };
+        body = {
+          model: settings.model,
+          messages: apiMessages,
+          stream: true,
+          tools: [{ google_search: {} }],
         };
       } else {
         url = `${settings.baseUrl}/chat/completions`;
@@ -563,42 +551,6 @@ ${searchContext ? `\nنتائج بحث من الإنترنت:\n${searchContext}\
                     }
                     className="w-full bg-secondary border border-gold/20 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-gold"
                   />
-                </div>
-
-                <div className="border-t border-gold/20 pt-4">
-                  <p className="text-xs font-medium text-gold mb-3">بحث خارجي (اختياري)</p>
-                  
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-medium mb-1 text-foreground">
-                        Google Search API Key
-                      </label>
-                      <input
-                        type="password"
-                        value={tempSettings.searchApiKey}
-                        onChange={(e) =>
-                          setTempSettings({ ...tempSettings, searchApiKey: e.target.value })
-                        }
-                        placeholder="AIza..."
-                        className="w-full bg-secondary border border-gold/20 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-gold"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-medium mb-1 text-foreground">
-                        Search Engine ID (cx)
-                      </label>
-                      <input
-                        type="text"
-                        value={tempSettings.searchEngineId}
-                        onChange={(e) =>
-                          setTempSettings({ ...tempSettings, searchEngineId: e.target.value })
-                        }
-                        placeholder="a1b2c3d4e5..."
-                        className="w-full bg-secondary border border-gold/20 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-gold"
-                      />
-                    </div>
-                  </div>
                 </div>
 
                 {!tempSettings.apiKey && (
