@@ -14,7 +14,6 @@ serve(async (req) => {
   }
 
   try {
-    // Check authorization
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(
@@ -39,7 +38,6 @@ serve(async (req) => {
       );
     }
 
-    // Check if user is the authorized admin
     if (user.email !== AUTHORIZED_EMAIL) {
       return new Response(
         JSON.stringify({ error: "غير مصرح لك باستخدام هذه الخاصية" }),
@@ -47,7 +45,7 @@ serve(async (req) => {
       );
     }
 
-    const { imageUrl } = await req.json();
+    const { imageUrl, apiKey, provider, model, baseUrl } = await req.json();
 
     if (!imageUrl) {
       return new Response(
@@ -56,56 +54,88 @@ serve(async (req) => {
       );
     }
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) {
-      throw new Error("LOVABLE_API_KEY is not configured");
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({ error: "API Key is required" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     console.log("Extracting text from image:", imageUrl, "by user:", user.email);
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content: `أنت خبير في استخراج النصوص من الصور (OCR) وتصحيح الأخطاء اللغوية العربية.
-            
+    let url = "";
+    let headers: Record<string, string> = {};
+    let body: Record<string, unknown> = {};
+
+    const ocrSystemPrompt = `أنت خبير في استخراج النصوص من الصور (OCR) وتصحيح الأخطاء اللغوية العربية.
+
 مهمتك:
 1. استخراج كل النص الموجود في الصورة بدقة عالية
 2. تصحيح أي أخطاء إملائية أو نحوية في النص المستخرج
 3. الحفاظ على التنسيق الأصلي للنص (فقرات، عناوين)
 4. إذا لم تجد نصاً في الصورة، أرجع رسالة توضح ذلك
 
-أرجع النص المستخرج والمصحح فقط، بدون أي شرح إضافي.`
-          },
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "استخرج النص العربي من هذه الصورة وصححه لغوياً:"
-              },
-              {
-                type: "image_url",
-                image_url: {
-                  url: imageUrl
-                }
-              }
-            ]
-          }
+أرجع النص المستخرج والمصحح فقط، بدون أي شرح إضافي.`;
+
+    const ocrUserMessage = {
+      role: "user",
+      content: [
+        { type: "text", text: "استخرج النص العربي من هذه الصورة وصححه لغوياً:" },
+        { type: "image_url", image_url: { url: imageUrl } }
+      ]
+    };
+
+    if (provider === "anthropic") {
+      url = `${baseUrl || "https://api.anthropic.com/v1"}/messages`;
+      headers = {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      };
+      body = {
+        model: model || "claude-sonnet-4-20250514",
+        max_tokens: 2048,
+        system: ocrSystemPrompt,
+        messages: [ocrUserMessage],
+      };
+    } else if (provider === "gemini") {
+      url = `${baseUrl || "https://generativelanguage.googleapis.com/v1beta/openai"}/chat/completions`;
+      headers = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      };
+      body = {
+        model: model || "gemini-2.5-flash",
+        messages: [
+          { role: "system", content: ocrSystemPrompt },
+          ocrUserMessage,
         ],
-      }),
+      };
+    } else {
+      url = `${baseUrl || "https://api.openai.com/v1"}/chat/completions`;
+      headers = {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      };
+      body = {
+        model: model || "gpt-4o",
+        messages: [
+          { role: "system", content: ocrSystemPrompt },
+          ocrUserMessage,
+        ],
+      };
+    }
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("AI gateway error:", response.status, errorText);
+      console.error("AI API error:", response.status, errorText);
       
       if (response.status === 429) {
         return new Response(
@@ -113,14 +143,8 @@ serve(async (req) => {
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "يرجى إضافة رصيد إلى حساب Lovable AI" }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
       
-      throw new Error(`AI gateway error: ${response.status}`);
+      throw new Error(`AI API error: ${response.status}`);
     }
 
     const data = await response.json();

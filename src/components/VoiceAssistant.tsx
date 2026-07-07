@@ -12,7 +12,6 @@ import {
   Settings,
   Image as ImageIcon,
   Trash2,
-  Lock,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -84,7 +83,6 @@ const PROVIDER_LABELS: Record<Provider, string> = {
 };
 
 const SETTINGS_KEY = "chat_settings_admin";
-const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/cinema-chat`;
 
 const loadSettings = (): ChatSettings => {
   try {
@@ -104,6 +102,21 @@ const loadSettings = (): ChatSettings => {
 const saveSettingsToStorage = (settings: ChatSettings) => {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 };
+
+async function searchGoogle(query: string, apiKey: string, cx: string): Promise<string> {
+  try {
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}&num=5&lr=lang_ar`;
+    const resp = await fetch(url);
+    if (!resp.ok) return "";
+    const data = await resp.json();
+    if (!data.items || data.items.length === 0) return "";
+    return data.items.map((item: { title: string; snippet: string; link: string }) =>
+      `- ${item.title}: ${item.snippet} [${item.link}]`
+    ).join("\n");
+  } catch {
+    return "";
+  }
+}
 
 const VoiceAssistant = () => {
   const { user } = useAuth();
@@ -193,21 +206,17 @@ const VoiceAssistant = () => {
     }
   };
 
-  const buildMessages = (userMessage: string, image?: string) => {
-    const systemMsg = {
-      role: "system" as const,
-      content: `أنت مساعد ذكي ومفيد. تقدر تساعد المستخدم في أي سؤال أو موضوع.
-- أجب بطريقة ودية ومختصرة باللغة العربية.
-- إذا أرسل المستخدم صورة، قم بتحليلها ووصف محتواها.`,
-    };
-
-    const userMsg: Message = { role: "user", content: userMessage };
-    if (image) userMsg.image = image;
-
-    return [systemMsg, ...messages, userMsg];
-  };
-
   const streamChat = async (userMessage: string) => {
+    if (!settings.apiKey) {
+      toast({
+        title: "محتاج API Key",
+        description: "افتح الإعدادات وحط API Key",
+        variant: "destructive",
+      });
+      if (isAdmin) setShowSettings(true);
+      return;
+    }
+
     const userMsg: Message = { role: "user", content: userMessage };
     if (uploadedImage) userMsg.image = uploadedImage;
 
@@ -220,27 +229,58 @@ const VoiceAssistant = () => {
     let assistantContent = "";
 
     try {
-      const allMessages = buildMessages(userMessage, uploadedImage);
-      const msgsToSend = allMessages.map((m) => ({
-        role: m.role === "system" ? "user" : m.role,
-        content: m.content,
-      }));
+      let searchContext = "";
+      if (settings.searchApiKey && settings.searchEngineId) {
+        searchContext = await searchGoogle(userMessage, settings.searchApiKey, settings.searchEngineId);
+      }
 
-      const resp = await fetch(CHAT_URL, {
-        method: "POST",
-        headers: {
+      const systemPrompt = `أنت مساعد ذكي ومفيد. السنة الحالية 2026.
+- أجب باللغة العربية بطريقة ودية ومختصرة
+- لا تخترع معلومات - إذا لم تعرف الإجابة، قل ذلك
+${searchContext ? `\nنتائج بحث من الإنترنت:\n${searchContext}\nاستخدمها للإجابة إذا كانت مناسبة.` : ""}`;
+
+      let url = "";
+      let headers: Record<string, string> = {};
+      let body: Record<string, unknown> = {};
+
+      const apiMessages = [
+        { role: "system", content: systemPrompt },
+        ...messages.map((m) => ({ role: m.role, content: m.content })),
+        { role: "user", content: uploadedImage ? `${userMessage}\n[صورة مرفقة]` : userMessage },
+      ];
+
+      if (settings.provider === "anthropic") {
+        url = `${settings.baseUrl}/messages`;
+        headers = {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-        },
-        body: JSON.stringify({
-          messages: msgsToSend,
-          apiKey: settings.apiKey || undefined,
-          provider: settings.apiKey ? settings.provider : undefined,
-          model: settings.apiKey ? settings.model : undefined,
-          baseUrl: settings.apiKey ? settings.baseUrl : undefined,
-          searchApiKey: settings.searchApiKey || undefined,
-          searchEngineId: settings.searchEngineId || undefined,
-        }),
+          "x-api-key": settings.apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        };
+        body = {
+          model: settings.model,
+          max_tokens: 2048,
+          system: systemPrompt,
+          messages: apiMessages.filter((m) => m.role !== "system"),
+          stream: true,
+        };
+      } else {
+        url = `${settings.baseUrl}/chat/completions`;
+        headers = {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${settings.apiKey}`,
+        };
+        body = {
+          model: settings.model,
+          messages: apiMessages,
+          stream: true,
+        };
+      }
+
+      const resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
       });
 
       if (!resp.ok) {
@@ -277,7 +317,15 @@ const VoiceAssistant = () => {
 
           try {
             const parsed = JSON.parse(jsonStr);
-            const content = parsed.choices?.[0]?.delta?.content || "";
+            let content = "";
+
+            if (settings.provider === "anthropic") {
+              if (parsed.type === "content_block_delta") {
+                content = parsed.delta?.text || "";
+              }
+            } else {
+              content = parsed.choices?.[0]?.delta?.content || "";
+            }
 
             if (content) {
               assistantContent += content;
@@ -298,10 +346,7 @@ const VoiceAssistant = () => {
       }
 
       if (assistantContent) {
-        const assistantMsg: Message = {
-          role: "assistant",
-          content: assistantContent,
-        };
+        const assistantMsg: Message = { role: "assistant", content: assistantContent };
         if (user?.id) saveMessageToDB(assistantMsg);
         speak(assistantContent);
       }
@@ -443,10 +488,7 @@ const VoiceAssistant = () => {
           {showSettings ? (
             <div className="flex flex-col h-full max-h-[80vh]">
               <div className="bg-gradient-to-r from-gold/20 to-gold/10 p-4 flex items-center justify-between border-b border-gold/20">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-bold text-foreground">الإعدادات</h3>
-                  <Lock className="w-4 h-4 text-gold" />
-                </div>
+                <h3 className="font-bold text-foreground">الإعدادات</h3>
                 <button
                   onClick={() => {
                     setShowSettings(false);
@@ -459,11 +501,6 @@ const VoiceAssistant = () => {
               </div>
 
               <div className="p-4 space-y-4 overflow-y-auto flex-1">
-                <div className="bg-gold/10 border border-gold/20 rounded-lg p-3 text-xs text-muted-foreground">
-                  <Lock className="w-3 h-3 inline mr-1 text-gold" />
-                  الشات شغال بـ Gemini المدمج. الإعدادات دي اختيارية لو عايز تستخدم API مخصص.
-                </div>
-
                 <div>
                   <label className="block text-sm font-medium mb-2 text-foreground">
                     مزود الخدمة
@@ -562,21 +599,15 @@ const VoiceAssistant = () => {
                       />
                     </div>
                   </div>
-
-                  {!tempSettings.searchApiKey && (
-                    <p className="text-xs text-muted-foreground mt-2">
-                      للبحث من الإنترنت. تقدر تاخده من Google Cloud Console
-                    </p>
-                  )}
                 </div>
 
                 {!tempSettings.apiKey && (
                   <p className="text-xs text-muted-foreground bg-secondary rounded-lg p-3">
-                    الشات شغال بـ Gemini المدمج. لو عايز تستخدم API مخصص، حط الـ Key بتاعك:
+                    محتاج تحط API Key. تقدر تاخده من:
+                    <br />
+                    - Gemini (مجاني): aistudio.google.com
                     <br />
                     - OpenAI: platform.openai.com
-                    <br />
-                    - Gemini: aistudio.google.com
                     <br />
                     - Anthropic: console.anthropic.com
                   </p>
@@ -602,12 +633,8 @@ const VoiceAssistant = () => {
                   <div>
                     <h3 className="font-bold text-foreground">المساعد السينمائي</h3>
                     <p className="text-xs text-muted-foreground">
-                      {user
-                        ? `${user.email?.split("@")[0]}`
-                        : "زائر"}
-                      {settings.apiKey
-                        ? ` - ${PROVIDER_LABELS[settings.provider]}`
-                        : " - Gemini"}
+                      {user ? user.email?.split("@")[0] : "زائر"}
+                      {settings.apiKey ? ` - ${PROVIDER_LABELS[settings.provider]}` : " - بدون API Key"}
                     </p>
                   </div>
                 </div>
@@ -628,7 +655,7 @@ const VoiceAssistant = () => {
                         setShowSettings(true);
                       }}
                       className="w-8 h-8 rounded-full hover:bg-gold/20 flex items-center justify-center transition-colors"
-                      title="الإعدادات (Admin فقط)"
+                      title="الإعدادات"
                     >
                       <Settings className="w-5 h-5 text-muted-foreground" />
                     </button>
@@ -649,7 +676,7 @@ const VoiceAssistant = () => {
                 {messages.length === 0 && (
                   <div className="text-center text-muted-foreground py-8">
                     <MessageCircle className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <p>مرحباً! اسألني أي سؤال عن السينما العربية</p>
+                    <p>مرحباً! اسألني أي سؤال</p>
                     {isAdmin && !settings.apiKey && (
                       <button
                         onClick={() => {
@@ -658,7 +685,7 @@ const VoiceAssistant = () => {
                         }}
                         className="mt-3 text-xs text-gold underline"
                       >
-                        اضغط هنا لضبط API Key مخصص
+                        اضغط هنا لضبط API Key
                       </button>
                     )}
                   </div>
@@ -752,11 +779,7 @@ const VoiceAssistant = () => {
                         : "bg-secondary hover:bg-gold/20 text-gold"
                     }`}
                   >
-                    {isListening ? (
-                      <MicOff className="w-5 h-5" />
-                    ) : (
-                      <Mic className="w-5 h-5" />
-                    )}
+                    {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                   </button>
 
                   {isSpeaking && (
