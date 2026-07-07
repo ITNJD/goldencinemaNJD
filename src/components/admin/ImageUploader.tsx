@@ -44,7 +44,7 @@ const ImageUploader = ({ onUpload, currentImage, folder = "general", className }
       const { data, error } = await supabase.storage
         .from("media")
         .upload(fileName, file, {
-          cacheControl: "3600",
+          cacheControl: "0",
           upsert: false,
         });
 

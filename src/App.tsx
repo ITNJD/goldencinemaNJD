@@ -15,7 +15,15 @@ import NotFound from "./pages/NotFound";
 import VoiceAssistant from "./components/VoiceAssistant";
 import BackgroundMusic from "./components/BackgroundMusic";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 0,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+    },
+  },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
