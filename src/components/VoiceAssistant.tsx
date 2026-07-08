@@ -228,8 +228,6 @@ const VoiceAssistant = () => {
     try {
       const searchResults = await searchWeb(userMessage);
 
-      const searchResults = await searchWeb(userMessage);
-
       const systemPrompt = `أنت مساعد ذكي ومفيد. السنة الحالية 2026.
 أجب باللغة العربية بطريقة ودية ومختصرة.
 ${searchResults ? `نتائج البحث من الإنترنت:\n${searchResults}\n\nاستخدم هذه النتائج للإجابة بدقة.` : "لا توجد نتائج بحث متاحة حالياً."}
