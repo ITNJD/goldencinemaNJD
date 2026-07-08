@@ -187,26 +187,6 @@ const VoiceAssistant = () => {
     }
   };
 
-  const searchWeb = async (query: string): Promise<string> => {
-    try {
-      const { data, error } = await supabase.functions.invoke("web-search", {
-        body: { query },
-      });
-      if (error) {
-        console.error("Search function error:", error);
-        return "";
-      }
-      console.log("Search results:", data);
-      if (!data?.results?.length) return "";
-      return data.results
-        .map((r: { title: string; snippet: string }) => `- ${r.title}: ${r.snippet}`)
-        .join("\n");
-    } catch (e) {
-      console.error("Web search failed:", e);
-      return "";
-    }
-  };
-
   const streamChat = async (userMessage: string) => {
     if (!settings.apiKey) {
       toast({
@@ -230,152 +210,78 @@ const VoiceAssistant = () => {
     let assistantContent = "";
 
     try {
-      const searchResults = await searchWeb(userMessage);
-
-      const systemPrompt = `أنت مساعد ذكي. السنة 2026. أجب بالعربية.
-
-نتائج البحث:
-${searchResults || "لا توجد نتائج"}
-
-قواعد مطلقة:
-1. استخدم فقط المعلومات الموجودة أعلاه في نتائج البحث
-2. ممنوع اختلاق أي أسماء أفلام أو مخرجين أو ممثلين
-3. ممنوع إضافة معلومات غير موجودة في نتائج البحث
-4. إذا لم توجد نتائج بحث، قل: "لا أستطيع الإجابة على هذا السؤال حالياً"
-5. لا تقل "سأراجع" أو "لاحقاً" - إما تجاوب من البحث أو تقل لا أعرف`;
-
-      let url = "";
-      let headers: Record<string, string> = {};
-      let body: Record<string, unknown> = {};
-
       const apiMessages = [
-        { role: "system", content: systemPrompt },
         ...messages.map((m) => ({ role: m.role, content: m.content })),
         { role: "user", content: userMessage },
       ];
 
-      if (settings.provider === "anthropic") {
-        url = `${settings.baseUrl}/messages`;
-        headers = {
-          "Content-Type": "application/json",
-          "x-api-key": settings.apiKey,
-          "anthropic-version": "2023-06-01",
-          "anthropic-dangerous-direct-browser-access": "true",
-        };
-        body = {
-          model: settings.model,
-          max_tokens: 2048,
-          system: systemPrompt,
-          messages: apiMessages.filter((m) => m.role !== "system"),
-          stream: true,
-        };
-      } else if (settings.provider === "gemini") {
-        const geminiMessages = apiMessages.filter((m) => m.role !== "system").map((m) => ({
-          role: m.role === "user" ? "user" : "model",
-          parts: [{ text: m.content }],
-        }));
-
-        url = `https://generativelanguage.googleapis.com/v1beta/models/${settings.model}:generateContent?key=${settings.apiKey}`;
-        headers = {
-          "Content-Type": "application/json",
-        };
-        body = {
-          contents: geminiMessages,
-          systemInstruction: {
-            parts: [{ text: systemPrompt }],
-          },
-        };
-      } else {
-        url = `${settings.baseUrl}/chat/completions`;
-        headers = {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${settings.apiKey}`,
-        };
-        body = {
-          model: settings.model,
+      const resp = await supabase.functions.invoke("cinema-chat", {
+        body: {
           messages: apiMessages,
-          stream: true,
-        };
-      }
-
-      const resp = await fetch(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
+          apiKey: settings.apiKey,
+          provider: settings.provider,
+          model: settings.model,
+          baseUrl: settings.baseUrl,
+        },
       });
 
-      if (!resp.ok) {
-        const err = await resp.text();
-        console.error("AI API error:", resp.status, err);
-        throw new Error(`خطأ من الـ API (${resp.status})`);
+      if (resp.error) {
+        console.error("cinema-chat error:", resp.error);
+        throw new Error(resp.error.message || "فشل في الاتصال");
       }
 
-      const reader = resp.body?.getReader();
+      const reader = resp.data?.body?.getReader();
+      if (!reader) throw new Error("No reader");
+
       const decoder = new TextDecoder();
       let buffer = "";
 
-      if (!reader) throw new Error("No reader");
-
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
-      if (settings.provider === "gemini") {
-        const data = await resp.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        assistantContent = text;
-        setMessages((prev) => {
-          const newMsgs = [...prev];
-          newMsgs[newMsgs.length - 1] = {
-            role: "assistant",
-            content: assistantContent,
-          };
-          return newMsgs;
-        });
-      } else {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
+        buffer += decoder.decode(value, { stream: true });
 
-          let newlineIndex: number;
-          while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-            let line = buffer.slice(0, newlineIndex);
-            buffer = buffer.slice(newlineIndex + 1);
+        let newlineIndex: number;
+        while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+          let line = buffer.slice(0, newlineIndex);
+          buffer = buffer.slice(newlineIndex + 1);
 
-            if (line.endsWith("\r")) line = line.slice(0, -1);
-            if (line.startsWith(":") || line.trim() === "") continue;
-            if (!line.startsWith("data: ")) continue;
+          if (line.endsWith("\r")) line = line.slice(0, -1);
+          if (line.startsWith(":") || line.trim() === "") continue;
+          if (!line.startsWith("data: ")) continue;
 
-            const jsonStr = line.slice(6).trim();
-            if (jsonStr === "[DONE]") break;
+          const jsonStr = line.slice(6).trim();
+          if (jsonStr === "[DONE]") break;
 
-            try {
-              const parsed = JSON.parse(jsonStr);
-              let content = "";
+          try {
+            const parsed = JSON.parse(jsonStr);
+            let content = "";
 
-              if (settings.provider === "anthropic") {
-                if (parsed.type === "content_block_delta") {
-                  content = parsed.delta?.text || "";
-                }
-              } else {
-                content = parsed.choices?.[0]?.delta?.content || "";
+            if (settings.provider === "anthropic") {
+              if (parsed.type === "content_block_delta") {
+                content = parsed.delta?.text || "";
               }
-
-              if (content) {
-                assistantContent += content;
-                setMessages((prev) => {
-                  const newMsgs = [...prev];
-                  newMsgs[newMsgs.length - 1] = {
-                    role: "assistant",
-                    content: assistantContent,
-                  };
-                  return newMsgs;
-                });
-              }
-            } catch {
-              buffer = line + "\n" + buffer;
-              break;
+            } else {
+              content = parsed.choices?.[0]?.delta?.content || "";
             }
+
+            if (content) {
+              assistantContent += content;
+              setMessages((prev) => {
+                const newMsgs = [...prev];
+                newMsgs[newMsgs.length - 1] = {
+                  role: "assistant",
+                  content: assistantContent,
+                };
+                return newMsgs;
+              });
+            }
+          } catch {
+            buffer = line + "\n" + buffer;
+            break;
           }
         }
       }
