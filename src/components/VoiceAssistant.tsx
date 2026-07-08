@@ -18,6 +18,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { useIsAdmin } from "@/hooks/useUserRole";
 import { supabase } from "@/integrations/supabase/client";
 
+const FUNCTIONS_URL = "https://qgjtopceqcuwjebcfwre.supabase.co/functions/v1";
+
 interface SpeechRecognitionEvent extends Event {
   results: SpeechRecognitionResultList;
 }
@@ -215,19 +217,21 @@ const VoiceAssistant = () => {
         { role: "user", content: userMessage },
       ];
 
-      const resp = await supabase.functions.invoke("cinema-chat", {
-        body: {
+      const resp = await fetch(`${FUNCTIONS_URL}/cinema-chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           messages: apiMessages,
           apiKey: settings.apiKey,
           provider: settings.provider,
           model: settings.model,
           baseUrl: settings.baseUrl,
-        },
+        }),
       });
 
-      if (resp.error) {
-        console.error("cinema-chat error:", resp.error);
-        throw new Error(resp.error.message || "فشل في الاتصال");
+      if (!resp.ok) {
+        const err = await resp.text();
+        throw new Error(err || "فشل في الاتصال");
       }
 
       const reader = resp.data?.body?.getReader();
