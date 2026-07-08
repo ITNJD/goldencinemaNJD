@@ -1,31 +1,19 @@
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import MovieCard from "@/components/MovieCard";
-import { useMovies, useYears } from "@/hooks/useMovies";
+import { movies, years } from "@/data/mockData";
 import { Calendar } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
 
 const Years = () => {
-  const { data: movies = [], isLoading } = useMovies();
-  const { data: years = [] } = useYears();
-  const [searchParams] = useSearchParams();
-  const decadeParam = searchParams.get("decade");
-
   const decades = [
-    { label: "العشرينات", start: 1920, end: 1929 },
-    { label: "الثلاثينيات", start: 1930, end: 1939 },
-    { label: "الأربعينات", start: 1940, end: 1949 },
     { label: "الخمسينيات", start: 1950, end: 1959 },
     { label: "الستينيات", start: 1960, end: 1969 },
     { label: "السبعينيات", start: 1970, end: 1979 },
     { label: "الثمانينيات", start: 1980, end: 1989 },
     { label: "التسعينيات", start: 1990, end: 1999 },
-    { label: "الألفينات", start: 2000, end: 2026 },
+    { label: "الألفينيات", start: 2000, end: 2009 },
+    { label: "العشرينيات", start: 2010, end: 2019 },
   ];
-
-  const filteredDecades = decadeParam
-    ? decades.filter((d) => d.start === parseInt(decadeParam))
-    : decades;
 
   const getMoviesByYear = (year: number) =>
     movies.filter((m) => m.year === year);
@@ -33,34 +21,11 @@ const Years = () => {
   const getDecadeYears = (start: number, end: number) =>
     years.filter((y) => y >= start && y <= end);
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <main className="pt-36 pb-20">
-          <div className="container mx-auto px-4">
-            <div className="text-center mb-12">
-              <h1 className="text-4xl md:text-5xl font-amiri font-bold text-gradient-gold mb-4">
-                تصفح حسب السنوات
-              </h1>
-            </div>
-            <div className="animate-pulse space-y-8">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-48 bg-muted rounded-xl" />
-              ))}
-            </div>
-          </div>
-        </main>
-        <Footer />
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="pt-36 pb-20">
+      <main className="pt-28 pb-20">
         <div className="container mx-auto px-4">
           {/* Page Header */}
           <div className="text-center mb-12">
@@ -73,7 +38,7 @@ const Years = () => {
           </div>
 
           {/* Decades */}
-          {filteredDecades.map((decade) => {
+          {decades.map((decade) => {
             const decadeYears = getDecadeYears(decade.start, decade.end);
             if (decadeYears.length === 0) return null;
 
@@ -115,12 +80,6 @@ const Years = () => {
               </section>
             );
           })}
-
-          {movies.length === 0 && (
-            <div className="text-center py-20">
-              <p className="text-muted-foreground text-lg">لا توجد أفلام حالياً</p>
-            </div>
-          )}
         </div>
       </main>
 
