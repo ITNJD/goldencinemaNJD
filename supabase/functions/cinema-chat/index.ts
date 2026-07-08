@@ -8,7 +8,7 @@ const corsHeaders = {
 
 async function searchGoogle(query: string, apiKey: string, cx: string): Promise<string> {
   try {
-    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}&num=10&lr=lang_ar`;
+    const url = `https://www.googleapis.com/customsearch/v1?key=${apiKey}&cx=${cx}&q=${encodeURIComponent(query)}&num=5&lr=lang_ar`;
     const resp = await fetch(url);
     if (!resp.ok) {
       console.error("Search API error:", resp.status, await resp.text());
@@ -44,13 +44,11 @@ serve(async (req) => {
     const { data: movies } = await supabase
       .from("movies")
       .select("title, year, director, genre, rating, synopsis, duration")
-      .order("year", { ascending: false })
-      .limit(50);
+      .order("year", { ascending: false });
 
     const { data: artists } = await supabase
       .from("artists")
-      .select("name, birth_year, death_year, role, biography")
-      .limit(30);
+      .select("name, birth_year, death_year, role, biography");
 
     let moviesContext = "";
     if (movies && movies.length > 0) {
@@ -68,31 +66,29 @@ serve(async (req) => {
     let searchContext = "";
     if (searchApiKey && searchEngineId && userQuestion) {
       searchContext = await searchGoogle(userQuestion, searchApiKey, searchEngineId);
-      console.log("Search results:", searchContext ? "Found" : "Empty");
-    } else {
-      console.log("Search skipped:", { searchApiKey: !!searchApiKey, searchEngineId: !!searchEngineId });
     }
 
-    const systemPrompt = `أنت مساعد ذكي ومفيد متخصص في السينما العربية.
+    const systemPrompt = `أنت مساعد موقع "السينما الذهبية" المتخصص في السينما العربية.
 
-معلومات مهمة جداً:
-- السنة الحالية هي 2026
-- أنت مساعد لموقع "السينما الذهبية"
+السنة الحالية: 2026
 
+قائمة أفلام الموقع:
 ${moviesContext}
 
+قائمة فنانين الموقع:
 ${artistsContext}
 
-${searchContext ? `\nنتائج بحث من الإنترنت (استخدمها للإجابة):\n${searchContext}` : "\nملاحظة: لا توجد نتائج بحث متاحة حالياً."}
+${searchContext ? `\nنتائج بحث من الإنترنت (لما الفيلم مش موجود في قاعدة الموقع):\n${searchContext}` : ""}
 
-قواعد صارمة:
-1. إذا كان هناك نتائج بحث، استخدمها فقط للإجابة واحذر المستخدم من المصدر
-2. لا تخترع أسماء أفلام أو مخرجين أو ممثلين - فقط استخدم ما هو موجود في النتائج أو في قواعد البيانات أعلاه
-3. إذا لم تجد معلومة، قل "لا تتوفر لدي معلومات كافية"
-4. إذا سأل المستخدم عن فيلم من الموقع، وضح أنه من "السينما الذهبية"
-5. إذا سأل عن أحدث الأفلام، استخدم نتائج البحث فقط
-6. أجب باللغة العربية بطريقة ودية ومختصرة
-7. إذا كان هناك روابط في نتائج البحث، شاركها مع المستخدم`;
+قواعد صارمة جداً:
+1. أولاً: دور في قائمة أفلام وفنانين الموقع أعلاه
+2. إذا كان الفيلم/الفنان موجود في قاعدة الموقع، أجب من المعلومات الموجودة
+3. إذا مش موجود في قاعدة الموقع، استخدم نتائج البحث من الإنترنت فقط إذا كانت متاحة
+4. إذا مش موجود في القاعدة ولا في نتائج البحث، قل: "هذا الفيلم/الفنان غير موجود في قاعدة بيانات الموقع"
+5. ممنوع تماماً تخترع أي اسم فيلم، مخرج، ممثل، سنة، أو تقييم
+6. إذا جبت معلومات من البحث، وضح أن المصدر من الإنترنت
+7. أجب باللغة العربية الفصحى البسيطة
+8. كن مختصراً ومباشراً`;
 
     let url = "";
     let headers: Record<string, string> = {};
