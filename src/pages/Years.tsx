@@ -20,7 +20,7 @@ const Years = () => {
     { label: "السبعينيات", start: 1970, end: 1979 },
     { label: "الثمانينيات", start: 1980, end: 1989 },
     { label: "التسعينيات", start: 1990, end: 1999 },
-    { label: "الألفينيات", start: 2000, end: 2026 },
+    { label: "الألفينات", start: 2000, end: 2026 },
   ];
 
   const filteredDecades = decadeParam

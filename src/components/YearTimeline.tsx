@@ -14,7 +14,7 @@ const YearTimeline = () => {
       "1970": { label: "السبعينيات", years: [], endYear: 1979 },
       "1980": { label: "الثمانينيات", years: [], endYear: 1989 },
       "1990": { label: "التسعينيات", years: [], endYear: 1999 },
-      "2000": { label: "الأفلام", years: [], endYear: 2026 },
+      "2000": { label: "الألفينات", years: [], endYear: 2026 },
     };
 
     years.forEach((year) => {
