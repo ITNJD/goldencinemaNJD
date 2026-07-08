@@ -192,7 +192,11 @@ const VoiceAssistant = () => {
       const { data, error } = await supabase.functions.invoke("web-search", {
         body: { query },
       });
-      if (error) throw error;
+      if (error) {
+        console.error("Search function error:", error);
+        return "";
+      }
+      console.log("Search results:", data);
       if (!data?.results?.length) return "";
       return data.results
         .map((r: { title: string; snippet: string }) => `- ${r.title}: ${r.snippet}`)
