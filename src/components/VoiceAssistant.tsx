@@ -234,7 +234,7 @@ const VoiceAssistant = () => {
         throw new Error(err || "فشل في الاتصال");
       }
 
-      const reader = resp.data?.body?.getReader();
+      const reader = resp.body?.getReader();
       if (!reader) throw new Error("No reader");
 
       const decoder = new TextDecoder();
