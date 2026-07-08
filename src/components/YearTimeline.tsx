@@ -14,17 +14,18 @@ const YearTimeline = () => {
       "1970": { label: "السبعينيات", years: [], endYear: 1979 },
       "1980": { label: "الثمانينيات", years: [], endYear: 1989 },
       "1990": { label: "التسعينيات", years: [], endYear: 1999 },
-      "2000": { label: "الألفينيات", years: [], endYear: 2009 },
-      "2020": { label: "العشرينات", years: [], endYear: 2029 },
+      "2000": { label: "الأفلام", years: [], endYear: 2026 },
     };
 
     years.forEach((year) => {
-      const decade = Math.floor(year / 10) * 10;
-      const key = decade.toString();
-      if (decadeMap[key]) {
-        decadeMap[key].years.push(year);
-      } else if (decade >= 2020) {
-        decadeMap["2020"].years.push(year);
+      if (year >= 2000) {
+        decadeMap["2000"].years.push(year);
+      } else {
+        const decade = Math.floor(year / 10) * 10;
+        const key = decade.toString();
+        if (decadeMap[key]) {
+          decadeMap[key].years.push(year);
+        }
       }
     });
 
